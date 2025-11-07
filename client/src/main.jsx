@@ -8,6 +8,7 @@ import App from "./App.jsx";
 const Home = React.lazy(() => import("./pages/Home"));
 const SportsCoach = React.lazy(() => import("./pages/SportsCoach"));
 const Dashboard = React.lazy(() => import("./pages/Dashboard"));
+const LivePredictions = React.lazy(() => import("./pages/LivePredictions"));
 
 const router = createBrowserRouter([
   {
@@ -16,6 +17,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <Home /> },
       { path: "sports-coach", element: <SportsCoach /> },
+      { path: "live-predictions", element: <LivePredictions /> },
       { path: "dashboard", element: <Dashboard /> },
     ],
   },

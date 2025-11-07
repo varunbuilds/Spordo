@@ -15,6 +15,7 @@ import {
   ListIcon,
   SearchIcon,
   SettingsIcon,
+  TrendingUpIcon,
   UsersIcon,
 } from "lucide-react";
 
@@ -48,6 +49,11 @@ const data = {
       title: "Sports Coach",
       url: "/sports-coach",
       icon: Brain,
+    },
+    {
+      title: "Live Predictions",
+      url: "/live-predictions",
+      icon: TrendingUpIcon,
     },
     {
       title: "Batting Analysis",
