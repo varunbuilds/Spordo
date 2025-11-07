@@ -59,14 +59,16 @@ const SportsCoach = () => {
           // Debounce updates - only update if there's a significant change or after 200ms
           updateTimeoutRef.current = setTimeout(() => {
             const lastUpdate = lastUpdateRef.current;
-            
+
             // Only update if values have changed significantly
             if (
               data.message !== lastUpdate.feedback ||
               Math.abs((data.form_score || 0) - lastUpdate.formScore) > 2 ||
               data.phase !== lastUpdate.phase ||
               data.shot_name !== lastUpdate.shotName ||
-              Math.abs((data.shot_confidence || 0) - lastUpdate.shotConfidence) > 0.05
+              Math.abs(
+                (data.shot_confidence || 0) - lastUpdate.shotConfidence
+              ) > 0.05
             ) {
               // Update Gemini tip only when it's not empty
               if (data.message) {
