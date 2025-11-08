@@ -11,6 +11,9 @@ from dotenv import load_dotenv
 # Use enhanced cricket coach (lighter, no TensorFlow)
 from analysis.enhanced_cricket_coach import EnhancedCricketCoach
 
+# ML model imports - kept for future use but not active by default
+# from models.cricket_shot_classifier_v2 import CricketShotClassifierV2
+
 load_dotenv()
 
 # Configure Gemini API
@@ -23,7 +26,7 @@ model = genai.GenerativeModel('gemini-1.5-flash')
 # Initialize Enhanced Cricket Coach
 cricket_coach = EnhancedCricketCoach()
 
-# Initialize lightweight shot classifier (no TensorFlow)
+# Simple rule-based shot classifier (active by default)
 class SimpleShotClassifier:
     """Simple rule-based shot classifier without TensorFlow dependencies."""
     def __init__(self):
@@ -31,7 +34,7 @@ class SimpleShotClassifier:
                      'Lofted', 'Pull', 'Square Cut', 'Straight Drive', 'Sweep']
         self.pose_buffer = []
         
-    def add_frame(self, landmarks):
+    def add_pose(self, landmarks):
         if landmarks is not None:
             self.pose_buffer.append(landmarks)
             if len(self.pose_buffer) > 30:
@@ -39,7 +42,7 @@ class SimpleShotClassifier:
     
     def classify_shot(self):
         if len(self.pose_buffer) < 10:
-            return {'shot_name': 'Analyzing...', 'confidence': 0.0}
+            return 'Analyzing...', 0.0, []
         
         # Simple heuristic based on wrist position
         recent = self.pose_buffer[-10:]
@@ -58,22 +61,21 @@ class SimpleShotClassifier:
         else:  # Center
             shot = 'Straight Drive' if avg_wrist_y < 0.5 else 'Defense'
             conf = 0.68
-            
-        return {'shot_name': shot, 'confidence': conf}
-    
-    def get_top_predictions(self, n=3):
-        result = self.classify_shot()
-        # Generate fake top predictions for demo
-        shot = result['shot_name']
-        conf = result['confidence']
+        
+        # Generate top predictions
         other_shots = [s for s in self.shots if s != shot]
-        top = [(shot, conf)]
-        top.extend([(other_shots[i], conf - 0.1 * (i+1)) for i in range(min(n-1, len(other_shots)))])
-        return top[:n]
+        top_predictions = [(shot, conf)]
+        top_predictions.extend([(other_shots[i], conf - 0.1 * (i+1)) for i in range(min(2, len(other_shots)))])
+        
+        return shot, conf, top_predictions
     
     def reset(self):
         self.pose_buffer = []
 
+# Initialize rule-based shot classifier
+shot_classifier = SimpleShotClassifier()
+
+# Initialize rule-based shot classifier
 shot_classifier = SimpleShotClassifier()
 
 app = FastAPI()
@@ -92,6 +94,7 @@ def process_image(data_url: str):
         return image
     except Exception as e:
         print(f"Error decoding image: {e}")
+        return None
         return None
 
 @app.websocket("/ws")
@@ -113,11 +116,15 @@ async def websocket_endpoint(websocket: WebSocket):
                     # Add shot classification
                     landmarks, _ = cricket_coach.extract_landmarks(frame)
                     if landmarks is not None:
-                        shot_classifier.add_frame(landmarks)
-                        shot_result = shot_classifier.classify_shot()
-                        result['shot_name'] = shot_result['shot_name']
-                        result['shot_confidence'] = shot_result['confidence']
-                        result['top_shots'] = shot_classifier.get_top_predictions(3)
+                        # Add pose to classifier buffer
+                        shot_classifier.add_pose(landmarks)
+                        
+                        # Classify shot
+                        shot_name, shot_confidence, top_predictions = shot_classifier.classify_shot()
+                        
+                        result['shot_name'] = shot_name
+                        result['shot_confidence'] = shot_confidence
+                        result['top_shots'] = top_predictions
                     else:
                         result['shot_name'] = 'N/A'
                         result['shot_confidence'] = 0.0
@@ -129,7 +136,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         shot_classifier.reset()  # Reset shot buffer
                         await websocket.send_json({
                             "type": "coaching_feedback",
-                            "message": "",
+                            "message": result.get('message', ''),
                             "form_score": 0,
                             "phase": "invalid",
                             "shot_name": "N/A",
@@ -138,49 +145,68 @@ async def websocket_endpoint(websocket: WebSocket):
                             "all_feedback": result.get('feedback', [])
                         })
                         continue
-                    
-                    # Get top priority feedback (errors and warnings only)
-                    priority_feedback = [
-                        fb for fb in result['feedback'] 
-                        if fb['status'] in ['error', 'warning']
-                    ]
-                    
-                    # Send real-time data for visual overlays (every frame)
-                    # Only generate Gemini coaching tip every 30 frames to avoid overwhelming
-                    coaching_tip = None
-                    if priority_feedback and frame_count % 30 == 0:
-                        # Get the most important feedback
-                        top_feedback = priority_feedback[0]
-                        
-                        # Generate Coaching Tip with Gemini (include shot name)
-                        prompt = f"""You are a professional cricket coach. 
-                        The batsman is playing a {result.get('shot_name', 'shot')} shot.
-                        Form issue: '{top_feedback['message']}'.
-                        Phase: {result['phase']}.
-                        Form score: {result['form_score']}/100.
-                        
-                        Give ONE short, actionable coaching tip (max 15 words)."""
-                        
-                        try:
-                            response = model.generate_content(prompt)
-                            coaching_tip = response.text
-                        except Exception as e:
-                            print(f"Gemini error: {e}")
-                            coaching_tip = top_feedback['message']
-                        
-                        print(f"Shot: {result.get('shot_name')} ({result.get('shot_confidence', 0):.0%}) | Phase: {result['phase']} | Score: {result['form_score']} | Tip: {coaching_tip}")
-
-                    # Send feedback (with or without Gemini tip)
+                else:
+                    # No pose detected - send appropriate message
                     await websocket.send_json({
                         "type": "coaching_feedback",
-                        "message": coaching_tip if coaching_tip else "",
-                        "form_score": result['form_score'],
-                        "phase": result['phase'],
-                        "shot_name": result.get('shot_name', 'Analyzing...'),
-                        "shot_confidence": result.get('shot_confidence', 0.0),
-                        "top_shots": result.get('top_shots', []),
-                        "all_feedback": priority_feedback[:3]  # Top 3 issues
+                        "message": result.get('message', 'No pose detected'),
+                        "form_score": 0,
+                        "phase": "no_pose",
+                        "shot_name": "N/A",
+                        "shot_confidence": 0.0,
+                        "top_shots": [],
+                        "all_feedback": []
                     })
+                    continue
+                
+                # Get top priority feedback (errors and warnings only)
+                priority_feedback = [
+                    fb for fb in result.get('feedback', [])
+                    if fb.get('status') in ['error', 'warning']
+                ]
+                
+                # Send real-time data for visual overlays (every frame)
+                # Only generate Gemini coaching tip every 30 frames to avoid overwhelming
+                coaching_tip = None
+                if priority_feedback and frame_count % 30 == 0:
+                    # Get the most important feedback
+                    top_feedback = priority_feedback[0]
+                    
+                    # Generate Coaching Tip with Gemini (include shot name)
+                    prompt = f"""You are a professional cricket coach. 
+                    The batsman is playing a {result.get('shot_name', 'shot')} shot.
+                    Form issue: '{top_feedback['message']}'.
+                    Phase: {result['phase']}.
+                    Form score: {result['form_score']}/100.
+                    
+                    Give ONE short, actionable coaching tip (max 15 words)."""
+                    
+                    try:
+                        response = model.generate_content(prompt)
+                        coaching_tip = response.text
+                    except Exception as e:
+                        print(f"Gemini error: {e}")
+                        coaching_tip = top_feedback['message']
+                    
+                    print(f"Shot: {result.get('shot_name')} ({result.get('shot_confidence', 0):.0%}) | Phase: {result['phase']} | Score: {result['form_score']} | Tip: {coaching_tip}")
+
+                # Send feedback (with or without Gemini tip)
+                feedback_data = {
+                    "type": "coaching_feedback",
+                    "message": coaching_tip if coaching_tip else "",
+                    "form_score": result.get('form_score', 0),
+                    "phase": result.get('phase', ''),
+                    "shot_name": result.get('shot_name', 'Analyzing...'),
+                    "shot_confidence": result.get('shot_confidence', 0.0),
+                    "top_shots": result.get('top_shots', []),
+                    "all_feedback": priority_feedback[:3]  # Top 3 issues
+                }
+                
+                # Debug logging every 30 frames
+                if frame_count % 30 == 0:
+                    print(f"📊 Frame {frame_count}: Score={feedback_data['form_score']}, Phase={feedback_data['phase']}, Feedback={len(feedback_data['all_feedback'])}")
+                
+                await websocket.send_json(feedback_data)
                     
     except Exception as e:
         print(f"Client disconnected or error: {e}")

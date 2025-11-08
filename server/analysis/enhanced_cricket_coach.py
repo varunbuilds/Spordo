@@ -309,60 +309,29 @@ class EnhancedCricketCoach:
         """
         Validate if the person is actually in a batting stance.
         Returns (is_valid, reason) tuple.
+        RELAXED VERSION - just check if person is visible and upright
         """
         # Get key landmarks
         left_hip = landmarks[23]
         right_hip = landmarks[24]
-        left_knee = landmarks[25]
-        right_knee = landmarks[26]
+        nose = landmarks[0]
         left_ankle = landmarks[27]
         right_ankle = landmarks[28]
-        nose = landmarks[0]
-        left_shoulder = landmarks[11]
-        right_shoulder = landmarks[12]
         
-        # Check 1: Person should be STANDING (hips above knees, knees above ankles)
+        # Check 1: Ankles should be visible (person is in frame)
+        if left_ankle[3] < 0.2 or right_ankle[3] < 0.2:  # Very low visibility
+            return False, "⚠️ Make sure your full body is visible in the camera"
+        
+        # Check 2: Basic upright posture (hips above ankles)
         hip_center_y = (left_hip[1] + right_hip[1]) / 2
-        knee_center_y = (left_knee[1] + right_knee[1]) / 2
         ankle_center_y = (left_ankle[1] + right_ankle[1]) / 2
         
-        # If sitting: hips will be at similar height or below knees
-        if hip_center_y >= knee_center_y - 0.05:  # Hips not significantly above knees
-            return False, "⚠️ Please STAND UP to analyze batting stance - currently sitting/crouching"
+        # Relaxed check - just needs to be somewhat upright
+        if hip_center_y >= ankle_center_y + 0.1:  # Very relaxed threshold
+            return False, "⚠️ Please stand up - currently in sitting/crouching position"
         
-        # Check 2: Legs should be relatively straight (not bent like sitting)
-        # Calculate knee angles
-        left_knee_angle = self.calculate_angle(
-            landmarks[23, :3],  # left hip
-            landmarks[25, :3],  # left knee
-            landmarks[27, :3]   # left ankle
-        )
-        right_knee_angle = self.calculate_angle(
-            landmarks[24, :3],  # right hip
-            landmarks[26, :3],  # right knee
-            landmarks[28, :3]   # right ankle
-        )
-        
-        # If both knees are very bent (< 100°), person is likely sitting
-        if left_knee_angle < 100 and right_knee_angle < 100:
-            return False, "⚠️ Please STAND UP to analyze batting stance - knees are too bent (sitting position)"
-        
-        # Check 3: Body should be relatively upright (not leaning way back like in a chair)
-        # Check if shoulders are significantly behind hips (sitting posture)
-        shoulder_center_x = (left_shoulder[0] + right_shoulder[0]) / 2
-        hip_center_x = (left_hip[0] + right_hip[0]) / 2
-        
-        # Check 4: Minimum height requirement (ankle to head should be reasonable)
-        body_height = abs(ankle_center_y - nose[1])
-        if body_height < 0.3:  # Too short to be standing
-            return False, "⚠️ Please STAND UP fully - detected pose is too low"
-        
-        # Check 5: Feet should be visible and on ground (ankles should be at bottom of frame)
-        # Ankles should have high visibility
-        if left_ankle[3] < 0.3 or right_ankle[3] < 0.3:  # Low visibility of ankles
-            return False, "⚠️ Make sure your full body is visible, including feet"
-        
-        return True, "✅ Valid batting stance detected"
+        # If we pass basic checks, allow analysis
+        return True, "✅ Valid pose detected"
     
     def calculate_form_score(self, all_feedback):
         """Calculate overall form score based on feedback."""

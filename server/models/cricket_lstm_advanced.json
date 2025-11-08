@@ -1,0 +1,16 @@
+{
+  "classes": [
+    "Cover Drive",
+    "Defense",
+    "Flick",
+    "Lofted",
+    "Pull",
+    "Square Cut",
+    "Straight Drive",
+    "Sweep"
+  ],
+  "num_classes": 8,
+  "sequence_length": 60,
+  "num_features": 8,
+  "model_type": "advanced_lstm_augmented"
+}
